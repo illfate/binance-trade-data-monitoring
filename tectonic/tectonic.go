@@ -76,6 +76,14 @@ var DefaultTectonic = Tectonic{
 	Port: 9001,
 }
 
+// NewTectonic constructs a new Tectonic
+func NewTectonic(host string, port uint16) *Tectonic {
+	return &Tectonic{
+		Host: host,
+		Port: port,
+	}
+}
+
 // Connect : Connects Tectonic instance to the database. Run to initialize
 func (t *Tectonic) Connect() error {
 	var (
