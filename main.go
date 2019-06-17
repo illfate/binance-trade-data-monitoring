@@ -21,7 +21,13 @@ type Depth struct {
 	Asks         [][2]string `json:"asks"`
 }
 
-func setUpDB() (*tectonic.Tectonic, error) {
+// Server holds tectonic db
+type Server struct {
+	DB *tectonic.Tectonic
+}
+
+// NewServer creates new server
+func NewServer() (*Server, error) {
 	db := tectonic.NewTectonic("127.0.0.1", 9002)
 	err := db.Connect()
 	if err != nil {
@@ -35,53 +41,48 @@ func setUpDB() (*tectonic.Tectonic, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not switch to db: %s", err)
 	}
-	return db, nil
+	return &Server{
+		DB: db,
+	}, nil
 }
 
-func main() {
+func getRequestDepth(symbol string) error {
 	req, err := http.NewRequest("GET", "https://www.binance.com/api/v1/depth", nil)
 	if err != nil {
-		log.Printf("could not create request: %s", err)
-		return
+		return fmt.Errorf("could not create request: %s", err)
 	}
 	q := req.URL.Query()
-	q.Add("symbol", "ETHBTC")
+	q.Add("symbol", symbol)
 	q.Add("limit", "1000")
 	req.URL.RawQuery = q.Encode()
 	client := http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("could not send request: %s", err)
-		return
+		return fmt.Errorf("could not send request: %s", err)
 	}
 	defer resp.Body.Close()
 	if err != nil {
-		log.Printf("could not read from body: %s", err)
-		return
+		return fmt.Errorf("could not read from body: %s", err)
 	}
 	var depth Depth
 	json.NewDecoder(resp.Body).Decode(&depth)
-	fmt.Printf("%+v\n", depth)
+	//fmt.Printf("%+v\n", depth) // TODO: Send data to bd
+	return nil
+}
 
-	db, err := setUpDB()
+func main() {
+	s, err := NewServer()
 	if err != nil {
-		log.Fatal(err)
+		log.Print(err)
+		return
 	}
-	wsDepthHandler := func(event *binance.WsDepthEvent) {
-		err = insertBids(db, event)
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = insertAsks(db, event)
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println(*event)
+
+	_, stop, err := s.processDepth("ETHBTC")
+	if err != nil {
+		log.Println(err)
+		return
 	}
-	errHandler := func(err error) {
-		fmt.Println(err)
-	}
-	_, stop, err := binance.WsDepthServe("ETHBTC", wsDepthHandler, errHandler)
+	_, _, err = s.processTrade("ETHBTC")
 	if err != nil {
 		log.Println(err)
 		return
@@ -96,7 +97,50 @@ func main() {
 	<-stop
 }
 
-func insertAsks(db *tectonic.Tectonic, event *binance.WsDepthEvent) error {
+func (s *Server) processDepth(symbol string) (doneC, stopC chan struct{}, err error) {
+	errHandler := func(err error) {
+		fmt.Println(err)
+	}
+	wsDepthHandler := func(event *binance.WsDepthEvent) {
+		err := s.insertBids(event)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = s.insertAsks(event)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	return binance.WsDepthServe("ETHBTC", wsDepthHandler, errHandler)
+}
+
+func (s *Server) processTrade(symbol string) (doneC, stopC chan struct{}, err error) {
+	errHandler := func(err error) {
+		fmt.Println(err)
+	}
+	wsTradeHandler := func(event *binance.WsTradeEvent) {
+		price, err := strconv.ParseFloat(event.Price, 64)
+		if err != nil {
+			//return fmt.Errorf("cannot parse price to flaot: %s", err)
+		}
+		qty, err := strconv.ParseFloat(event.Quantity, 64)
+		if err != nil {
+			//return fmt.Errorf("cannot parse price to flaot: %s", err)
+		}
+		delta := tectonic.Delta{
+			Timestamp: float64(event.TradeTime),
+			Price:     price,
+			Size:      qty,
+			Seq:       uint32(event.TradeID),
+			IsTrade:   true,
+			IsBid:     false,
+		}
+		err = s.DB.Insert(&delta)
+	}
+	return binance.WsTradeServe("ETHBTC", wsTradeHandler, errHandler)
+}
+
+func (s *Server) insertAsks(event *binance.WsDepthEvent) error {
 	for _, ask := range event.Asks {
 		price, err := strconv.ParseFloat(ask.Price, 64)
 		if err != nil {
@@ -104,7 +148,7 @@ func insertAsks(db *tectonic.Tectonic, event *binance.WsDepthEvent) error {
 		}
 		qty, err := strconv.ParseFloat(ask.Quantity, 64)
 		if err != nil {
-			return fmt.Errorf("cannot parse price to flaot: %s", err)
+			return fmt.Errorf("cannot parse qty to flaot: %s", err)
 		}
 		delta := tectonic.Delta{
 			Timestamp: float64(event.Time),
@@ -114,7 +158,7 @@ func insertAsks(db *tectonic.Tectonic, event *binance.WsDepthEvent) error {
 			IsTrade:   false,
 			IsBid:     true,
 		}
-		err = db.Insert(&delta)
+		err = s.DB.Insert(&delta)
 		if err != nil {
 			return fmt.Errorf("could not insert into db: %s", err)
 		}
@@ -122,7 +166,7 @@ func insertAsks(db *tectonic.Tectonic, event *binance.WsDepthEvent) error {
 	return nil
 }
 
-func insertBids(db *tectonic.Tectonic, event *binance.WsDepthEvent) error {
+func (s *Server) insertBids(event *binance.WsDepthEvent) error {
 	for _, bid := range event.Bids {
 		price, err := strconv.ParseFloat(bid.Price, 64)
 		if err != nil {
@@ -130,7 +174,7 @@ func insertBids(db *tectonic.Tectonic, event *binance.WsDepthEvent) error {
 		}
 		qty, err := strconv.ParseFloat(bid.Quantity, 64)
 		if err != nil {
-			return fmt.Errorf("cannot parse price to flaot: %s", err)
+			return fmt.Errorf("cannot parse qty to flaot: %s", err)
 		}
 		delta := tectonic.Delta{
 			Timestamp: float64(event.Time),
@@ -140,7 +184,7 @@ func insertBids(db *tectonic.Tectonic, event *binance.WsDepthEvent) error {
 			IsTrade:   false,
 			IsBid:     true,
 		}
-		err = db.Insert(&delta)
+		err = s.DB.Insert(&delta)
 		if err != nil {
 			return fmt.Errorf("could not insert into db: %s", err)
 		}
