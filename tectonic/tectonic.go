@@ -98,7 +98,7 @@ func (t *Tectonic) Connect() error {
 
 // SendMessage : Sends message to TectonicDB
 func (t *Tectonic) SendMessage(message string) (string, error) {
-	var readBuf = make([]byte, (1 << 15))
+	var readBuf = make([]byte, 1 << 15)
 
 	_, _ = t.Connection.Write([]byte(message + "\n"))
 	_, readErr := t.Connection.Read(readBuf)
@@ -213,8 +213,8 @@ func (t *Tectonic) Get(amount uint64) (*[]Delta, error) {
 func (t *Tectonic) GetFrom(dbName string, amount uint64, asTick bool) (*[]Delta, error) {
 	// We use a buffer here to make it easier to maintain
 	var (
-		msgBuf  = bytes.Buffer{}
-		msgJSON = []Delta{}
+		msgBuf    = bytes.Buffer{}
+		msgJSON []Delta
 	)
 	msgBuf.WriteString("GET ")
 	msgBuf.WriteString(strconv.Itoa(int(amount)))

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 
 	"github.com/adshao/go-binance"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -108,49 +109,89 @@ func main() {
 		return
 	}
 
-	err = t.processBinance("ETHBTC")
+	errors := make(chan error)
+	errHandler := func(err error) {
+		select {
+		case errors <- err:
+		default:
+		}
+	}
+
+	var wg sync.WaitGroup
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err = t.processBinance(ctx, &wg, "ETHBTC", errHandler)
 	if err != nil {
 		log.Print(err)
 		return
 	}
-	stop := make(chan struct{})
-	go func() {
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, os.Interrupt)
-		<-sigs
-		log.Printf("stopped...\n")
-		stop <- struct{}{}
-	}()
-	<-stop
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt)
+
+	select {
+	case err := <-errors:
+		log.Print(err)
+		cancel()
+
+	case <-sigs:
+		log.Printf("stopped...")
+		cancel()
+	}
+
+	wg.Wait()
 }
 
-func (t *Tectonic) processBinance(symbol string) error {
-	_, _, err := t.processDepth(symbol)
+func (t *Tectonic) processBinance(ctx context.Context, wg *sync.WaitGroup,
+	symbol string, errHandler binance.ErrHandler) error {
+
+	wg.Add(1)
+	err := t.startDepthServe(ctx, wg, symbol, errHandler)
 	if err != nil {
 		return err
 	}
-	_, _, err = t.processTrade(symbol)
-	if err != nil {
-		return err
-	}
+
+	//_, _, err = t.processTrade(symbol)
+	//if err != nil {
+	//	return err
+	//}
 	return nil
 }
 
-func (t *Tectonic) processDepth(symbol string) (doneC, stopC chan struct{}, err error) {
-	errHandler := func(err error) {
-		fmt.Println(err)
-	}
+func (t *Tectonic) startDepthServe(ctx context.Context, wg *sync.WaitGroup,
+	symbol string, errHandler binance.ErrHandler) error {
+
 	wsDepthHandler := func(event *binance.WsDepthEvent) {
 		err := t.insertBids(event)
 		if err != nil {
-			log.Fatal(err)
+			errHandler(err)
+			return
 		}
 		err = t.insertAsks(event)
 		if err != nil {
-			log.Fatal(err)
+			errHandler(err)
+			return
 		}
 	}
-	return binance.WsDepthServe("ETHBTC", wsDepthHandler, errHandler)
+
+	done, stop, err := binance.WsDepthServe(symbol, wsDepthHandler, errHandler)
+	if err != nil {
+		wg.Done()
+		return err // todo wrap
+	}
+
+	go func() {
+		defer wg.Done()
+
+		select {
+		case <-ctx.Done():
+			close(stop)
+		case <-done:
+			return
+		}
+	}()
+
+	return nil
 }
 
 func (t *Tectonic) processTrade(symbol string) (doneC, stopC chan struct{}, err error) {
