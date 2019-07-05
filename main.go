@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/adshao/go-binance"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -102,6 +103,19 @@ func (m *Mongo) getRequestDepth(symbol string) error {
 	return nil
 }
 
+func (m *Mongo) startDepthReq() {
+	ticker := time.NewTicker(5 * time.Second)
+	go func() {
+		for range ticker.C {
+			err := m.getRequestDepth("ETHBTC")
+			if err != nil {
+				log.Print(err)
+				return
+			}
+		}
+	}()
+}
+
 func main() {
 	t, err := NewTectonic()
 	if err != nil {
@@ -177,7 +191,7 @@ func (t *Tectonic) startDepthServe(ctx context.Context, wg *sync.WaitGroup,
 	done, stop, err := binance.WsDepthServe(symbol, wsDepthHandler, errHandler)
 	if err != nil {
 		wg.Done()
-		return err // todo wrap
+		return fmt.Errorf("couldn't strart listening websockert: %s", err)
 	}
 
 	go func() {
