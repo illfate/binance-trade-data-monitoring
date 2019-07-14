@@ -37,6 +37,30 @@ type Tectonic struct {
 	CurrentExchange string
 }
 
+// NewTectonic creates new server
+func New(ip, port string) (*DB, error) {
+	portParsed, err := strconv.ParseUint(port, 10, 16)
+	if err != nil {
+		return nil, err
+	}
+	db := NewTectonic(ip, uint16(portParsed))
+	err = db.Connect()
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to tectonic: %s", err)
+	}
+	err = db.Create("binance")
+	if err != nil {
+		return nil, fmt.Errorf("could not create tectonic db: %s", err)
+	}
+	err = db.Use("binance")
+	if err != nil {
+		return nil, fmt.Errorf("could not switch to db: %s", err)
+	}
+	return &DB{
+		conn: db,
+	}, nil
+}
+
 // TectonicDB function prototypes
 // ****************************
 // Help()                                               ( string, error )       done
@@ -98,7 +122,7 @@ func (t *Tectonic) Connect() error {
 
 // SendMessage : Sends message to TectonicDB
 func (t *Tectonic) SendMessage(message string) (string, error) {
-	var readBuf = make([]byte, 1 << 15)
+	var readBuf = make([]byte, 1<<15)
 
 	_, _ = t.Connection.Write([]byte(message + "\n"))
 	_, readErr := t.Connection.Read(readBuf)
@@ -213,7 +237,7 @@ func (t *Tectonic) Get(amount uint64) (*[]Delta, error) {
 func (t *Tectonic) GetFrom(dbName string, amount uint64, asTick bool) (*[]Delta, error) {
 	// We use a buffer here to make it easier to maintain
 	var (
-		msgBuf    = bytes.Buffer{}
+		msgBuf  = bytes.Buffer{}
 		msgJSON []Delta
 	)
 	msgBuf.WriteString("GET ")

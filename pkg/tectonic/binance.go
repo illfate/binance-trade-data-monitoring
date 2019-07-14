@@ -15,31 +15,6 @@ type DB struct {
 	conn *Tectonic
 }
 
-// NewTectonic creates new server
-// IP port "127.0.0.1" 9002
-func New(ip, port string) (*DB, error) {
-	portParsed, err := strconv.ParseUint(port, 10, 16)
-	if err != nil {
-		return nil, err
-	}
-	db := NewTectonic(ip, uint16(portParsed))
-	err = db.Connect()
-	if err != nil {
-		return nil, fmt.Errorf("could not connect to tectonic: %s", err)
-	}
-	err = db.Create("binance")
-	if err != nil {
-		return nil, fmt.Errorf("could not create tectonic db: %s", err)
-	}
-	err = db.Use("binance")
-	if err != nil {
-		return nil, fmt.Errorf("could not switch to db: %s", err)
-	}
-	return &DB{
-		conn: db,
-	}, nil
-}
-
 func (db *DB) ProcessBinance(ctx context.Context, wg *sync.WaitGroup,
 	symbol string, errHandler binance.ErrHandler) error {
 
@@ -49,10 +24,11 @@ func (db *DB) ProcessBinance(ctx context.Context, wg *sync.WaitGroup,
 		return err
 	}
 
-	//_, _, err = t.processTrade(symbol)
-	//if err != nil {
-	//	return err
-	//}
+	wg.Add(1)
+	err = db.startTrade(ctx, wg, symbol, errHandler)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -92,18 +68,21 @@ func (db *DB) startDepthServe(ctx context.Context, wg *sync.WaitGroup,
 	return nil
 }
 
-func (db *DB) processTrade(symbol string) (doneC, stopC chan struct{}, err error) {
-	errHandler := func(err error) {
-		fmt.Println(err)
-	}
+func (db *DB) startTrade(ctx context.Context, wg *sync.WaitGroup, symbol string,
+	errHandler binance.ErrHandler) (err error) {
+
 	wsTradeHandler := func(event *binance.WsTradeEvent) {
 		price, err := strconv.ParseFloat(event.Price, 64)
 		if err != nil {
-			log.Fatal(fmt.Errorf("cannot parse price to flaot: %s", err))
+			log.Printf("cannot parse price to float: %s", err)
+			errHandler(err)
+			return
 		}
 		qty, err := strconv.ParseFloat(event.Quantity, 64)
 		if err != nil {
-			log.Fatal(fmt.Errorf("cannot parse price to flaot: %s", err))
+			log.Printf("cannot parse price to float: %s", err)
+			errHandler(err)
+			return
 		}
 		delta := Delta{
 			Timestamp: float64(event.TradeTime),
@@ -118,7 +97,24 @@ func (db *DB) processTrade(symbol string) (doneC, stopC chan struct{}, err error
 			log.Printf("could not insert into db: %s", err)
 		}
 	}
-	return binance.WsTradeServe(symbol, wsTradeHandler, errHandler)
+	done, stop, err := binance.WsTradeServe(symbol, wsTradeHandler, errHandler)
+	if err != nil {
+		wg.Done()
+		return fmt.Errorf("couldn't strart listening websockert: %s", err)
+	}
+
+	go func() {
+		defer wg.Done()
+
+		select {
+		case <-ctx.Done():
+			close(stop)
+		case <-done:
+			return
+		}
+	}()
+
+	return nil
 }
 
 func (db *DB) insertAsks(event *binance.WsDepthEvent) error {
