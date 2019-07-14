@@ -1,44 +1,26 @@
-package main
+package tectonic
 
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net/http"
-	"os"
-	"os/signal"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/adshao/go-binance"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-
-	"github.com/illfate/binance-trade-data-monitoring/tectonic"
 )
 
-// Depth represents a binance depth
-type Depth struct {
-	LastUpdateID int         `json:"lastUpdateId"`
-	Bids         [][2]string `json:"bids"`
-	Asks         [][2]string `json:"asks"`
-}
-
 // Tectonic holds tectonic db
-type Tectonic struct {
-	DB *tectonic.Tectonic
-}
-
-type Mongo struct {
-	DB *mongo.Collection
+type DB struct {
+	conn *Tectonic
 }
 
 // NewTectonic creates new server
-func NewTectonic() (*Tectonic, error) {
-	db := tectonic.NewTectonic("127.0.0.1", 9002)
-	err := db.Connect()
+// IP port "127.0.0.1" 9002
+func New(IP, port string) (*DB, error) {
+	portParsed, err := strconv.ParseUint(port, 10, 16)
+	db := NewTectonic(IP, uint16(portParsed))
+	err = db.Connect()
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to tectonic: %s", err)
 	}
@@ -50,110 +32,9 @@ func NewTectonic() (*Tectonic, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not switch to db: %s", err)
 	}
-	return &Tectonic{
-		DB: db,
+	return &DB{
+		conn: db,
 	}, nil
-}
-
-func NewMongo() (*Mongo, error) {
-	client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://127.0.0.1:27017"))
-	if err != nil {
-		return nil, err
-	}
-	err = client.Connect(context.TODO())
-	if err != nil {
-		return nil, err
-	}
-
-	// Check the connection
-	err = client.Ping(context.TODO(), nil)
-	if err != nil {
-		return nil, err
-	}
-	collection := client.Database("binance").Collection("depth")
-	return &Mongo{
-		DB: collection,
-	}, nil
-}
-
-func (m *Mongo) getRequestDepth(symbol string) error {
-	req, err := http.NewRequest("GET", "https://www.binance.com/api/v1/depth", nil)
-	if err != nil {
-		return fmt.Errorf("could not create request: %s", err)
-	}
-	q := req.URL.Query()
-	q.Add("symbol", symbol)
-	q.Add("limit", "1000")
-	req.URL.RawQuery = q.Encode()
-	client := http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("could not send request: %s", err)
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("could not read from body: %s", err)
-	}
-
-	_, err = m.DB.InsertOne(context.TODO(), body, nil)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *Mongo) startDepthReq() {
-	ticker := time.NewTicker(5 * time.Second)
-	go func() {
-		for range ticker.C {
-			err := m.getRequestDepth("ETHBTC")
-			if err != nil {
-				log.Print(err)
-				return
-			}
-		}
-	}()
-}
-
-func main() {
-	t, err := NewTectonic()
-	if err != nil {
-		log.Print(err)
-		return
-	}
-
-	errors := make(chan error)
-	errHandler := func(err error) {
-		select {
-		case errors <- err:
-		default:
-		}
-	}
-
-	var wg sync.WaitGroup
-	ctx, cancel := context.WithCancel(context.Background())
-
-	err = t.processBinance(ctx, &wg, "ETHBTC", errHandler)
-	if err != nil {
-		log.Print(err)
-		return
-	}
-
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt)
-
-	select {
-	case err := <-errors:
-		log.Print(err)
-		cancel()
-
-	case <-sigs:
-		log.Printf("stopped...")
-		cancel()
-	}
-
-	wg.Wait()
 }
 
 func (t *Tectonic) processBinance(ctx context.Context, wg *sync.WaitGroup,
