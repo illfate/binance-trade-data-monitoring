@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"time"
 
@@ -22,8 +23,8 @@ type Mongo struct {
 	DB *mongo.Collection
 }
 
-func NewMongo(database, collectiob, uri string) (*Mongo, error) {
-	client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://127.0.0.1:27017"))
+func New(database, dbCollection, uri string) (*Mongo, error) {
+	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +36,7 @@ func NewMongo(database, collectiob, uri string) (*Mongo, error) {
 	if err != nil {
 		return nil, err
 	}
-	collection := client.Database("binance").Collection("depth")
+	collection := client.Database(database).Collection(dbCollection)
 	return &Mongo{
 		DB: collection,
 	}, nil
@@ -68,14 +69,20 @@ func (m *Mongo) getRequestDepth(symbol string) error {
 	return nil
 }
 
-func (m *Mongo) startDepthReq(symbol string, errHandler func(err error)) {
+func (m *Mongo) StartDepthReq(ctx context.Context, symbol string, errHandler func(err error)) {
 	ticker := time.NewTicker(5 * time.Second)
 	go func() {
-		select {
-		case <-ticker.C:
-			err := m.getRequestDepth(symbol)
-			if err != nil {
-				errHandler(err)
+		for {
+			select {
+			case <-ticker.C:
+				err := m.getRequestDepth(symbol)
+				if err != nil {
+					errHandler(err)
+				}
+			case <-ctx.Done():
+				ticker.Stop()
+				log.Printf("StartDepthReq(%s) has stopped", symbol)
+				return
 			}
 		}
 	}()

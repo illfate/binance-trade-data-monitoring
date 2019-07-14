@@ -17,9 +17,12 @@ type DB struct {
 
 // NewTectonic creates new server
 // IP port "127.0.0.1" 9002
-func New(IP, port string) (*DB, error) {
+func New(ip, port string) (*DB, error) {
 	portParsed, err := strconv.ParseUint(port, 10, 16)
-	db := NewTectonic(IP, uint16(portParsed))
+	if err != nil {
+		return nil, err
+	}
+	db := NewTectonic(ip, uint16(portParsed))
 	err = db.Connect()
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to tectonic: %s", err)
@@ -37,11 +40,11 @@ func New(IP, port string) (*DB, error) {
 	}, nil
 }
 
-func (t *Tectonic) processBinance(ctx context.Context, wg *sync.WaitGroup,
+func (db *DB) ProcessBinance(ctx context.Context, wg *sync.WaitGroup,
 	symbol string, errHandler binance.ErrHandler) error {
 
 	wg.Add(1)
-	err := t.startDepthServe(ctx, wg, symbol, errHandler)
+	err := db.startDepthServe(ctx, wg, symbol, errHandler)
 	if err != nil {
 		return err
 	}
@@ -53,16 +56,16 @@ func (t *Tectonic) processBinance(ctx context.Context, wg *sync.WaitGroup,
 	return nil
 }
 
-func (t *Tectonic) startDepthServe(ctx context.Context, wg *sync.WaitGroup,
+func (db *DB) startDepthServe(ctx context.Context, wg *sync.WaitGroup,
 	symbol string, errHandler binance.ErrHandler) error {
 
 	wsDepthHandler := func(event *binance.WsDepthEvent) {
-		err := t.insertBids(event)
+		err := db.insertBids(event)
 		if err != nil {
 			errHandler(err)
 			return
 		}
-		err = t.insertAsks(event)
+		err = db.insertAsks(event)
 		if err != nil {
 			errHandler(err)
 			return
@@ -89,7 +92,7 @@ func (t *Tectonic) startDepthServe(ctx context.Context, wg *sync.WaitGroup,
 	return nil
 }
 
-func (t *Tectonic) processTrade(symbol string) (doneC, stopC chan struct{}, err error) {
+func (db *DB) processTrade(symbol string) (doneC, stopC chan struct{}, err error) {
 	errHandler := func(err error) {
 		fmt.Println(err)
 	}
@@ -102,7 +105,7 @@ func (t *Tectonic) processTrade(symbol string) (doneC, stopC chan struct{}, err 
 		if err != nil {
 			log.Fatal(fmt.Errorf("cannot parse price to flaot: %s", err))
 		}
-		delta := tectonic.Delta{
+		delta := Delta{
 			Timestamp: float64(event.TradeTime),
 			Price:     price,
 			Size:      qty,
@@ -110,12 +113,15 @@ func (t *Tectonic) processTrade(symbol string) (doneC, stopC chan struct{}, err 
 			IsTrade:   true,
 			IsBid:     false,
 		}
-		err = t.DB.Insert(&delta)
+		err = db.conn.Insert(&delta)
+		if err != nil {
+			return fmt.Errorf("could not insert into db: %s", err)
+		}
 	}
-	return binance.WsTradeServe("ETHBTC", wsTradeHandler, errHandler)
+	return binance.WsTradeServe(symbol, wsTradeHandler, errHandler)
 }
 
-func (t *Tectonic) insertAsks(event *binance.WsDepthEvent) error {
+func (db *DB) insertAsks(event *binance.WsDepthEvent) error {
 	for _, ask := range event.Asks {
 		price, err := strconv.ParseFloat(ask.Price, 64)
 		if err != nil {
@@ -125,7 +131,7 @@ func (t *Tectonic) insertAsks(event *binance.WsDepthEvent) error {
 		if err != nil {
 			return fmt.Errorf("cannot parse qty to flaot: %s", err)
 		}
-		delta := tectonic.Delta{
+		delta := Delta{
 			Timestamp: float64(event.Time),
 			Price:     price,
 			Size:      qty,
@@ -133,7 +139,7 @@ func (t *Tectonic) insertAsks(event *binance.WsDepthEvent) error {
 			IsTrade:   false,
 			IsBid:     true,
 		}
-		err = t.DB.Insert(&delta)
+		err = db.conn.Insert(&delta)
 		if err != nil {
 			return fmt.Errorf("could not insert into db: %s", err)
 		}
@@ -141,7 +147,7 @@ func (t *Tectonic) insertAsks(event *binance.WsDepthEvent) error {
 	return nil
 }
 
-func (t *Tectonic) insertBids(event *binance.WsDepthEvent) error {
+func (db *DB) insertBids(event *binance.WsDepthEvent) error {
 	for _, bid := range event.Bids {
 		price, err := strconv.ParseFloat(bid.Price, 64)
 		if err != nil {
@@ -151,7 +157,7 @@ func (t *Tectonic) insertBids(event *binance.WsDepthEvent) error {
 		if err != nil {
 			return fmt.Errorf("cannot parse qty to flaot: %s", err)
 		}
-		delta := tectonic.Delta{
+		delta := Delta{
 			Timestamp: float64(event.Time),
 			Price:     price,
 			Size:      qty,
@@ -159,7 +165,7 @@ func (t *Tectonic) insertBids(event *binance.WsDepthEvent) error {
 			IsTrade:   false,
 			IsBid:     true,
 		}
-		err = t.DB.Insert(&delta)
+		err = db.conn.Insert(&delta)
 		if err != nil {
 			return fmt.Errorf("could not insert into db: %s", err)
 		}

@@ -7,17 +7,23 @@ import (
 	"os/signal"
 	"sync"
 
+	"github.com/illfate/binance-trade-data-monitoring/pkg/mongo"
+
 	"github.com/illfate/binance-trade-data-monitoring/pkg/tectonic"
 )
 
 func main() {
-	t, err := tectonic.NewTectonic()
+	dbPort := os.Getenv("DB_PORT")
+	dbIP := os.Getenv("DB_IP")
+	db, err := tectonic.New(dbIP, dbPort)
 	if err != nil {
 		log.Print(err)
 		return
 	}
-
-	m, err := NewMongo()
+	mongoDB := os.Getenv("MONGO_DB")
+	mongoURI := os.Getenv("MONGO_URI")
+	mongoCollection := os.Getenv("MONGO_COLLECTION")
+	m, err := mongo.New(mongoDB, mongoCollection, mongoURI)
 	if err != nil {
 		log.Print(err)
 		return
@@ -30,12 +36,12 @@ func main() {
 		default:
 		}
 	}
-	m.startDepthReq("ETHBTC", errHandler)
-
 	var wg sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
 
-	err = t.processBinance(ctx, &wg, "ETHBTC", errHandler)
+	m.StartDepthReq(ctx, "ETHBTC", errHandler)
+
+	err = db.ProcessBinance(ctx, &wg, "ETHBTC", errHandler)
 	if err != nil {
 		log.Print(err)
 		return

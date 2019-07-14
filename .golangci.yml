@@ -38,3 +38,5 @@ issues:
         - dupl
         - gosec
         - scopelint
+        - gosec
+        -
