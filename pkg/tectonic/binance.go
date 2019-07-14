@@ -115,7 +115,7 @@ func (db *DB) processTrade(symbol string) (doneC, stopC chan struct{}, err error
 		}
 		err = db.conn.Insert(&delta)
 		if err != nil {
-			return fmt.Errorf("could not insert into db: %s", err)
+			log.Printf("could not insert into db: %s", err)
 		}
 	}
 	return binance.WsTradeServe(symbol, wsTradeHandler, errHandler)
