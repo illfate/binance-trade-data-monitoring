@@ -15,6 +15,7 @@ type DB struct {
 	conn *Tectonic
 }
 
+// ProcessBinance starts listening depth and trade sockets and write info to db.
 func (db *DB) ProcessBinance(ctx context.Context, wg *sync.WaitGroup,
 	symbol string, errHandler binance.ErrHandler) error {
 
