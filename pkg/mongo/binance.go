@@ -42,17 +42,17 @@ func (db *DB) getRequestDepth(symbol string) error {
 	client := http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("could not send request: %s", err)
+		return errors.Wrap(err, "could not send request")
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("could not read from body: %s", err)
+		return errors.Wrap(err, "could not read from body")
 	}
 
 	_, err = db.InsertOne(context.TODO(), body, nil)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "couldn't insert depth")
 	}
 	return nil
 }
