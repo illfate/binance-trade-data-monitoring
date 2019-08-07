@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 func (db *DB) StartDepthReq(ctx context.Context, symbol string, errHandler func(err error)) {
