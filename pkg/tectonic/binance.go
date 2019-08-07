@@ -7,13 +7,12 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/pkg/errors"
+
+	tectonic "github.com/rickyhan/tectonicdb/cli/golang"
+
 	"github.com/adshao/go-binance"
 )
-
-// Tectonic holds tectonic db
-type DB struct {
-	conn *Tectonic
-}
 
 // ProcessBinance starts listening depth and trade sockets and write info to db.
 func (db *DB) ProcessBinance(ctx context.Context, wg *sync.WaitGroup,
@@ -39,12 +38,12 @@ func (db *DB) startDepthServe(ctx context.Context, wg *sync.WaitGroup,
 	wsDepthHandler := func(event *binance.WsDepthEvent) {
 		err := db.insertBids(event)
 		if err != nil {
-			errHandler(err)
+			errHandler(errors.Wrap(err, "couldn't insert bids"))
 			return
 		}
 		err = db.insertAsks(event)
 		if err != nil {
-			errHandler(err)
+			errHandler(errors.Wrap(err, "couldn't insert asks"))
 			return
 		}
 	}
@@ -52,7 +51,7 @@ func (db *DB) startDepthServe(ctx context.Context, wg *sync.WaitGroup,
 	done, stop, err := binance.WsDepthServe(symbol, wsDepthHandler, errHandler)
 	if err != nil {
 		wg.Done()
-		return fmt.Errorf("couldn't strart listening websockert: %s", err)
+		return errors.Wrap(err, "couldn't strart listening websockert")
 	}
 
 	go func() {
@@ -75,17 +74,17 @@ func (db *DB) startTrade(ctx context.Context, wg *sync.WaitGroup, symbol string,
 	wsTradeHandler := func(event *binance.WsTradeEvent) {
 		price, err := strconv.ParseFloat(event.Price, 64)
 		if err != nil {
-			log.Printf("cannot parse price to float: %s", err)
+			log.Printf("couldn't parse price to float: %s", err)
 			errHandler(err)
 			return
 		}
 		qty, err := strconv.ParseFloat(event.Quantity, 64)
 		if err != nil {
-			log.Printf("cannot parse price to float: %s", err)
+			log.Printf("couldn't parse price to float: %s", err)
 			errHandler(err)
 			return
 		}
-		delta := Delta{
+		delta := tectonic.Delta{
 			Timestamp: float64(event.TradeTime),
 			Price:     price,
 			Size:      qty,
@@ -95,13 +94,13 @@ func (db *DB) startTrade(ctx context.Context, wg *sync.WaitGroup, symbol string,
 		}
 		err = db.conn.Insert(&delta)
 		if err != nil {
-			log.Printf("could not insert into db: %s", err)
+			log.Printf("couldn't insert into db: %s", err)
 		}
 	}
 	done, stop, err := binance.WsTradeServe(symbol, wsTradeHandler, errHandler)
 	if err != nil {
 		wg.Done()
-		return fmt.Errorf("couldn't strart listening websockert: %s", err)
+		return errors.Wrap(err, "couldn't start listening websocket")
 	}
 
 	go func() {
@@ -122,13 +121,13 @@ func (db *DB) insertAsks(event *binance.WsDepthEvent) error {
 	for _, ask := range event.Asks {
 		price, err := strconv.ParseFloat(ask.Price, 64)
 		if err != nil {
-			return fmt.Errorf("cannot parse price to flaot: %s", err)
+			return errors.Wrapf(err, "couldn't parse ask price to float [%s]", ask.Price)
 		}
 		qty, err := strconv.ParseFloat(ask.Quantity, 64)
 		if err != nil {
-			return fmt.Errorf("cannot parse qty to flaot: %s", err)
+			return errors.Wrapf(err, "couldn't parse ask qty to float [%s]", ask.Quantity)
 		}
-		delta := Delta{
+		delta := tectonic.Delta{
 			Timestamp: float64(event.Time),
 			Price:     price,
 			Size:      qty,
@@ -138,7 +137,7 @@ func (db *DB) insertAsks(event *binance.WsDepthEvent) error {
 		}
 		err = db.conn.Insert(&delta)
 		if err != nil {
-			return fmt.Errorf("could not insert into db: %s", err)
+			return errors.Wrap(err, "couldn't insert delta asks into db")
 		}
 	}
 	return nil
@@ -148,13 +147,13 @@ func (db *DB) insertBids(event *binance.WsDepthEvent) error {
 	for _, bid := range event.Bids {
 		price, err := strconv.ParseFloat(bid.Price, 64)
 		if err != nil {
-			return fmt.Errorf("cannot parse price to flaot: %s", err)
+			return errors.Wrapf(err, "couldn't parse bid price to float [%s]", bid.Price)
 		}
 		qty, err := strconv.ParseFloat(bid.Quantity, 64)
 		if err != nil {
-			return fmt.Errorf("cannot parse qty to flaot: %s", err)
+			return errors.Wrapf(err, "couldn't parse bid qty to float [%s]", bid.Quantity)
 		}
-		delta := Delta{
+		delta := tectonic.Delta{
 			Timestamp: float64(event.Time),
 			Price:     price,
 			Size:      qty,
@@ -164,7 +163,7 @@ func (db *DB) insertBids(event *binance.WsDepthEvent) error {
 		}
 		err = db.conn.Insert(&delta)
 		if err != nil {
-			return fmt.Errorf("could not insert into db: %s", err)
+			return fmt.Errorf("coudln't insert delta bids into db: %s", err)
 		}
 	}
 	return nil
