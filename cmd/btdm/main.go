@@ -15,9 +15,10 @@ import (
 func main() {
 	tPort := os.Getenv("TECTONIC_PORT")
 	tIP := os.Getenv("TECTONIC_IP")
-	tDB, err := tectonic.New(tIP, tPort)
+	tDBName := os.Getenv("TECTONIC_DB_NAME")
+	tDB, err := tectonic.New(tIP, tPort, tDBName)
 	if err != nil {
-		log.Printf("couldn't start tectonic db: %s", err)
+		log.Printf("couldn't connect to tectonic db: %s", err)
 		return
 	}
 	mongoDB := os.Getenv("MONGO_DB")
