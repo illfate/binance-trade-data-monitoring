@@ -12,7 +12,7 @@ type DB struct {
 }
 
 // NewTectonic creates new server
-func New(ip, port string) (*DB, error) {
+func New(ip, port, dbName string) (*DB, error) {
 	portParsed, err := strconv.ParseUint(port, 10, 16)
 	if err != nil {
 		return nil, errors.Wrap(err, "couldn't parse port string")
@@ -26,11 +26,7 @@ func New(ip, port string) (*DB, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "couldn't connect to tectonic")
 	}
-	err = db.Create("binance")
-	if err != nil {
-		return nil, errors.Wrap(err, "couldn't create tectonic db")
-	}
-	err = db.Use("binance")
+	err = db.Use(dbName)
 	if err != nil {
 		return nil, errors.Wrap(err, "couldn't switch to db")
 	}
