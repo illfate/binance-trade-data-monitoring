@@ -13,11 +13,11 @@ import (
 )
 
 func main() {
-	dbPort := os.Getenv("DB_PORT")
-	dbIP := os.Getenv("DB_IP")
-	db, err := tectonic.New(dbIP, dbPort)
+	tPort := os.Getenv("TECTONIC_PORT")
+	tIP := os.Getenv("TECTONIC_IP")
+	tDB, err := tectonic.New(tIP, tPort)
 	if err != nil {
-		log.Print(err)
+		log.Printf("couldn't start tectonic db: %s", err)
 		return
 	}
 	mongoDB := os.Getenv("MONGO_DB")
@@ -25,7 +25,7 @@ func main() {
 	mongoCollection := os.Getenv("MONGO_COLLECTION")
 	m, err := mongo.New(mongoDB, mongoCollection, mongoURI)
 	if err != nil {
-		log.Print(err)
+		log.Printf("couldn't start mongo db: %s", err)
 		return
 	}
 
@@ -41,7 +41,7 @@ func main() {
 
 	m.StartDepthReq(ctx, "ETHBTC", errHandler)
 
-	err = db.ProcessBinance(ctx, &wg, "ETHBTC", errHandler)
+	err = tDB.ProcessBinance(ctx, &wg, "ETHBTC", errHandler)
 	if err != nil {
 		log.Print(err)
 		return
