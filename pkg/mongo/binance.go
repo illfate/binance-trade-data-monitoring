@@ -11,8 +11,8 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (db *DB) StartDepthReq(ctx context.Context, symbol string, errHandler func(err error)) {
-	ticker := time.NewTicker(5 * time.Second)
+func (db *DB) StartDepthReq(ctx context.Context, duration time.Duration, symbol string, errHandler func(err error)) {
+	ticker := time.NewTicker(duration)
 	go func() {
 		for {
 			select {

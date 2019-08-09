@@ -1,0 +1,26 @@
+version: "3.4"
+services:
+  binance-trade:
+    build: .
+    depends_on:
+      - tectonic
+      - mongo
+    environment:
+      TECTONIC_PORT: 9001
+      TECTONIC_IP: tectonic
+      TECTONIC_DB_NAME: binance
+      MONGO_DB: binance
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_COLLECTION: binance
+      REQ_UPDATE_TIME: 10m
+  tectonic:
+    container_name: tectonic
+    image: fatwhaleltd/tectonicdb
+    ports:
+      - 9001:9001
+  mongo:
+    container_name: mongo
+    image: mongo:3.4
+    ports:
+      - 27017:27017
+

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"time"
 
 	"github.com/illfate/binance-trade-data-monitoring/pkg/mongo"
 
@@ -21,9 +22,15 @@ func main() {
 		log.Printf("couldn't connect to tectonic db: %s", err)
 		return
 	}
-	mongoDB := os.Getenv("MONGO_DB")
+	mongoDB := os.Getenv("MONGO_DB_NAME")
 	mongoURI := os.Getenv("MONGO_URI")
 	mongoCollection := os.Getenv("MONGO_COLLECTION")
+	updateTime := os.Getenv("REQ_UPDATE_TIME")
+	updateDuration, err := time.ParseDuration(updateTime)
+	if err != nil {
+		log.Printf("couldn't parse time: %s", updateTime)
+		return
+	}
 	m, err := mongo.New(mongoDB, mongoCollection, mongoURI)
 	if err != nil {
 		log.Printf("couldn't start mongo db: %s", err)
@@ -40,7 +47,7 @@ func main() {
 	var wg sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
 
-	m.StartDepthReq(ctx, "ETHBTC", errHandler)
+	m.StartDepthReq(ctx, updateDuration, "ETHBTC", errHandler)
 
 	err = tDB.ProcessBinance(ctx, &wg, "ETHBTC", errHandler)
 	if err != nil {
